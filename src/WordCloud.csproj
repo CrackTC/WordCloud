@@ -16,11 +16,28 @@
     <EnableUnsafeUTF7Encoding>true</EnableUnsafeUTF7Encoding>
     <InvariantGlobalization>true</InvariantGlobalization>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
+
+    <PackageId>Sorac.WordCloud</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>CrackTC</Authors>
+    <Description>A C# word cloud generator</Description>
+    <Copyright>Copyright (c) CrackTC 2024</Copyright>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/CrackTC/WordCloud</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/CrackTC/WordCloud</RepositoryUrl>
+    <PackageTags>word cloud</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="SkiaSharp" Version="2.88.7" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../README.md" Pack="true" PackagePath="\" />
+    <None Include="../native/linux-x64/libwordcloud.so" Pack="true" PackagePath="runtimes/linux-x64/native/" />
   </ItemGroup>
 
 </Project>
