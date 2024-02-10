@@ -23,9 +23,9 @@ image.Encode().SaveTo(stream);
 
 ## Example
 
-see [example](./example/)
+see [example](https://github.com/CrackTC/WordCloud/tree/main/example)
 
-![example](./example/wordcloud.png)
+![example](https://raw.githubusercontent.com/CrackTC/WordCloud/main/example/wordcloud.png)
 
 ## License
 
