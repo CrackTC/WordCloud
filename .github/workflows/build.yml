@@ -13,7 +13,7 @@ env:
   BUILD_TYPE: Release
 
 jobs:
-  build:
+  build-native:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
@@ -35,8 +35,42 @@ jobs:
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
     - name: Upload
-      uses: actions/upload-artifact@v4.3.1
+      uses: actions/upload-artifact@v4
       with:
         name: libwordcloud-${{ matrix.os }}
-        path: ${{github.workspace}}/build
+        path: |
+          ${{github.workspace}}/build/Release/wordcloud.dll
+          ${{github.workspace}}/build/libwordcloud.so
+          ${{github.workspace}}/build/libwordcloud.dylib
         if-no-files-found: error
+
+  nuget:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 8
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: native
+          merge-multiple: true
+
+      - name: Dotnet pack
+        run: |
+          cd ./src
+          dotnet pack -c Release
+
+      - name: Setup nuget
+        uses: nuget/setup-nuget@v1
+        with:
+          nuget-version: '5.x'
+
+      - name: Push package
+        run: |
+          nuget push ./src/bin/Release/*.nupkg -Source https://api.nuget.org/v3/index.json -SkipDuplicate -ApiKey ${{ secrets.NUGETAPIKEY }}
