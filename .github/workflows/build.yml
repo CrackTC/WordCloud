@@ -65,6 +65,7 @@ jobs:
       - name: Dotnet pack
         run: |
           cd ./src
+          dotnet build -c Release
           dotnet pack -c Release
 
       - name: Setup nuget
