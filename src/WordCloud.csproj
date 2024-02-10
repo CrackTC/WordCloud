@@ -38,7 +38,7 @@
   <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="\" />
     <None Include="../native/libwordcloud.so" Pack="true" PackagePath="runtimes/linux-x64/native/" />
-    <None Include="../native/wordcloud.dll" Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="../native/Release/wordcloud.dll" Pack="true" PackagePath="runtimes/win-x64/native/" />
     <None Include="../native/libwordcloud.dylib" Pack="true" PackagePath="runtimes/osx-x64/native/" />
   </ItemGroup>
 
