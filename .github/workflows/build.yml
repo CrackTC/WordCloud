@@ -70,7 +70,7 @@ jobs:
 
       - name: Add private GitHub registry to NuGet
         run: |
-          dotnet nuget add source --username CrackTC --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/CrackTC/index.json"
+          dotnet nuget add source --username CrackTC --password ${{ secrets.PAT }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/CrackTC/index.json"
 
       - name: Push package
         run: |
