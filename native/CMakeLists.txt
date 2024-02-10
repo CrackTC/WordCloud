@@ -12,8 +12,6 @@ set_target_properties(wordcloud PROPERTIES
     PUBLIC_HEADER ./include/wordcloud.h
 )
 
-target_link_libraries(wordcloud -static)
-
 include(GNUInstallDirs)
 install(TARGETS wordcloud
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
