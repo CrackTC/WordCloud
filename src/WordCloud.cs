@@ -11,7 +11,7 @@ public partial class WordCloud(
     int maxFontSize,
     int minFontSize,
     int fontSizeStep,
-    float similiarity,
+    float similarity,
     int padding,
     int strokeWidth,
     SKColor background,
@@ -124,7 +124,7 @@ public partial class WordCloud(
 
                 if (i < list.Count - 1)
                 {
-                    fontSize *= 1 - (1 - (float)list[i + 1].Value / (float)list[i].Value) / similiarity;
+                    fontSize *= 1 - (1 - (float)list[i + 1].Value / (float)list[i].Value) / similarity;
                     if (fontSize < minFontSize) break;
                 }
             }
@@ -177,7 +177,7 @@ public class WordCloudBuilder
     private SKColor _background = SKColors.Black;
     private SKImage? _backgroundImage;
     private int _backgroudImageBlur = 0;
-    private float _similiarity = 5;
+    private float _similarity = 5;
     private int _strokeWidth = 0;
     private Func<string, SKColor>? _colorFunc;
     private Func<string, SKColor>? _strokeColorFunc;
@@ -230,9 +230,9 @@ public class WordCloudBuilder
         return this;
     }
 
-    public WordCloudBuilder WithSimiliarity(float similiarity)
+    public WordCloudBuilder WithSimilarity(float similiarity)
     {
-        _similiarity = similiarity;
+        _similarity = similiarity;
         return this;
     }
     public WordCloudBuilder WithPadding(int padding)
@@ -290,7 +290,7 @@ public class WordCloudBuilder
         _maxFontSize,
         _minFontSize,
         _fontSizeStep,
-        _similiarity,
+        _similarity,
         _padding,
         _strokeWidth,
         _background,
