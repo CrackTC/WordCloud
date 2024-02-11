@@ -18,7 +18,7 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
 
     <PackageId>Sorac.WordCloud</PackageId>
-    <Version>1.0.3</Version>
+    <Version>1.0.4</Version>
     <Authors>CrackTC</Authors>
     <Description>A C# word cloud generator</Description>
     <Copyright>Copyright (c) CrackTC 2024</Copyright>
@@ -37,9 +37,10 @@
 
   <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="\" />
-    <None Include="../native/libwordcloud.so" Pack="true" PackagePath="runtimes/linux-x64/native/" />
-    <None Include="../native/Release/wordcloud.dll" Pack="true" PackagePath="runtimes/win-x64/native/" />
-    <None Include="../native/libwordcloud.dylib" Pack="true" PackagePath="runtimes/osx-x64/native/" />
+    <None Include="../native/libwordcloud-ubuntu/libwordcloud.so" Pack="true" PackagePath="runtimes/linux-x64/native/" />
+    <None Include="../native/libwordcloud-alpine/libwordcloud.so" Pack="true" PackagePath="runtimes/linux-musl-x64/native/" />
+    <None Include="../native/libwordcloud-windows/Release/wordcloud.dll" Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="../native/libwordcloud-macos/libwordcloud.dylib" Pack="true" PackagePath="runtimes/osx-x64/native/" />
   </ItemGroup>
 
 </Project>
