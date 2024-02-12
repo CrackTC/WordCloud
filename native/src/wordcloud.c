@@ -1,7 +1,8 @@
-void cumulative_sum(int *arr, int width, int height) {
+void cumulative_sum(unsigned int *arr, int width, int height) {
   for (int y = 0; y < height; y++) {
+    arr[y * width] = arr[y * width] > 0 ? 1 : 0;
     for (int x = 1; x < width; x++) {
-      arr[y * width + x] += arr[y * width + x - 1];
+      arr[y * width + x] = arr[y * width + x - 1] + (arr[y * width + x] > 0 ? 1 : 0);
     }
   }
   for (int y = 1; y < height; y++) {
