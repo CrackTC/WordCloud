@@ -16,14 +16,17 @@ public partial class WordCloud(
     int strokeWidth,
     SKColor background,
     SKImage? backgroundImage,
-    int backgroudImageBlur,
+    int backgroundImageBlur,
+    SKImage? mask,
+    float verticality,
     Func<string, SKColor>? colorFunc,
     Func<string, SKColor>? strokeColorFunc
 ) : IDisposable
 {
+    private static readonly Random _random = new();
     private readonly Func<string, SKColor> _colorFunc = colorFunc ?? (s => SKColor.Parse("aaffffff"));
     private readonly Func<string, SKColor> _strokeColorFunc = strokeColorFunc ?? (s => SKColors.Black);
-    private readonly Random _random = new();
+    private readonly int[] _matrix = new int[width * height];
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int GetIndex(int x, int y) => y * width + x;
@@ -43,12 +46,11 @@ public partial class WordCloud(
 
         if (bw >= width || bh >= height) return null;
 
-        int[] matrix = new int[width * height];
-        pixmap.GetPixelSpan<int>().CopyTo(matrix);
-        CumulativeSum(matrix, width, height);
+        pixmap.GetPixelSpan<int>().CopyTo(_matrix);
+        CumulativeSum(_matrix, width, height);
 
         int[] hits = new int[height - bh];
-        HitCount(matrix, width, height, bw, bh, hits);
+        HitCount(_matrix, width, height, bw, bh, hits);
 
         for (int i = 1; i < hits.Length; i++)
             hits[i] += hits[i - 1];
@@ -64,13 +66,13 @@ public partial class WordCloud(
 
         for (int x = 0; x < width - bw; x++)
         {
-            if (matrix[GetIndex(x, row)] - matrix[GetIndex(x + bw, row)] + matrix[GetIndex(x + bw, row + bh)] - matrix[GetIndex(x, row + bh)] == 0)
+            if (_matrix[GetIndex(x, row)] - _matrix[GetIndex(x + bw, row)] + _matrix[GetIndex(x + bw, row + bh)] - _matrix[GetIndex(x, row + bh)] == 0)
             {
                 count++;
                 if (count == index)
                 {
-                    if (!vertical) return new SKPoint(x + padding - bounds.Left, row + padding - bounds.Top);
-                    else return new SKPoint(x + padding + bounds.Height + bounds.Top, row + padding - bounds.Left);
+                    if (!vertical) return new(x + padding - bounds.Left, row + padding - bounds.Top);
+                    else return new(x + padding + bounds.Height + bounds.Top, row + padding - bounds.Left);
                 }
             }
         }
@@ -89,73 +91,84 @@ public partial class WordCloud(
         canvas.DrawText(text, x, y, paint);
     }
 
+    private void DrawText(SKCanvas canvas, string text, SKPoint position, SKPaint paint, bool vertical)
+    {
+        canvas.Save();
+        if (vertical)
+        {
+            canvas.RotateDegrees(90);
+            FillAndStrokeText(canvas, text, position.Y, -position.X, paint);
+        }
+        else FillAndStrokeText(canvas, text, position.X, position.Y, paint);
+        canvas.Restore();
+    }
+
+    private void DrawBackground(SKCanvas canvas)
+    {
+        using var paint = new SKPaint { Color = background, BlendMode = SKBlendMode.DstOver };
+        var dest = new SKRect(-backgroundImageBlur, -backgroundImageBlur, width + 2 * backgroundImageBlur, height + 2 * backgroundImageBlur);
+
+        if (backgroundImage is null)
+        {
+            canvas.DrawRect(dest, paint);
+            return;
+        }
+
+        if (backgroundImageBlur > 0)
+            paint.ImageFilter = SKImageFilter.CreateBlur(backgroundImageBlur, backgroundImageBlur);
+
+        canvas.DrawImage(backgroundImage, dest, paint);
+    }
+
+    private void DrawMask(SKCanvas canvas)
+    {
+        if (mask is null) return;
+        canvas.DrawImage(mask, new SKRect(0, 0, width, height));
+    }
+
+    private void ClearMask(SKCanvas canvas)
+    {
+        if (mask is null) return;
+        using var paint = new SKPaint { BlendMode = SKBlendMode.DstOut };
+        canvas.DrawImage(mask, new SKRect(0, 0, width, height), paint);
+    }
+
     public SKImage GenerateImage(Dictionary<string, int> freqDict)
     {
-        var list = freqDict.ToList();
-        list.Sort((a, b) => -a.Value.CompareTo(b.Value));
+        var list = freqDict.OrderByDescending(x => x.Value)
+                           .Select(x => (Text: x.Key, Freq: x.Value, Vertical: _random.NextSingle() < verticality))
+                           .ToList();
 
         var info = new SKImageInfo(width, height, SKColorType.Rgba8888);
         using var surface = SKSurface.Create(info);
         using var canvas = surface.Canvas;
 
         float fontSize = maxFontSize;
-        using var paint = new SKPaint { IsAntialias = true };
+        using var paint = new SKPaint { IsAntialias = true, StrokeWidth = strokeWidth };
 
-        for (int i = 0; i < list.Count; i++)
+        for (int i = 0; i < list.Count && fontSize >= minFontSize; i++)
         {
             using var pixmap = surface.PeekPixels();
-            var text = list[i].Key;
-            bool vertical = _random.Next(2) == 0;
+            var (text, freq, vertical) = list[i];
 
             paint.TextSize = fontSize;
             paint.Color = _colorFunc(text);
-            paint.StrokeWidth = strokeWidth;
             if (typeface is { }) paint.Typeface = typeface;
 
             if (GetTextPosition(pixmap, text, paint, vertical) is { } position)
             {
-                if (vertical)
-                {
-                    canvas.RotateDegrees(90);
-                    FillAndStrokeText(canvas, text, position.Y, -position.X, paint);
-                    canvas.ResetMatrix();
-                }
-                else FillAndStrokeText(canvas, text, position.X, position.Y, paint);
-
+                DrawText(canvas, text, position, paint, vertical);
                 if (i < list.Count - 1)
-                {
-                    fontSize *= 1 - (1 - (float)list[i + 1].Value / (float)list[i].Value) / similarity;
-                    if (fontSize < minFontSize) break;
-                }
+                    fontSize *= 1 - (1 - (float)list[i + 1].Freq / (float)freq) / similarity;
             }
             else
             {
                 i--;
                 fontSize -= fontSizeStep;
-                if (fontSize < minFontSize) break;
             }
         }
 
-        using var cloud = surface.Snapshot();
-        canvas.Clear(background);
-
-        if (backgroundImage is { } image)
-        {
-            if (backgroudImageBlur > 0)
-            {
-                using var filter = SKImageFilter.CreateBlur(backgroudImageBlur, backgroudImageBlur);
-                using var blurPaint = new SKPaint { ImageFilter = filter };
-                canvas.DrawImage(
-                    image,
-                    new SKRect(-backgroudImageBlur, -backgroudImageBlur, width + 2 * backgroudImageBlur, height + 2 * backgroudImageBlur),
-                    blurPaint
-                );
-            }
-            else canvas.DrawImage(image, new SKPoint(0, 0));
-        }
-
-        canvas.DrawImage(cloud, new SKPoint(0, 0));
-
+        DrawBackground(canvas);
         return surface.Snapshot();
     }
 
@@ -176,7 +189,9 @@ public class WordCloudBuilder
     private int _padding = 2;
     private SKColor _background = SKColors.Black;
     private SKImage? _backgroundImage;
-    private int _backgroudImageBlur = 0;
+    private int _backgroundImageBlur = 0;
+    private SKImage? _mask;
+    private float _verticality = 0.3f;
     private float _similarity = 5;
     private int _strokeWidth = 0;
     private Func<string, SKColor>? _colorFunc;
@@ -267,7 +282,25 @@ public class WordCloudBuilder
 
     public WordCloudBuilder WithBlur(int size)
     {
-        _backgroudImageBlur = size;
+        _backgroundImageBlur = size;
+        return this;
+    }
+
+    public WordCloudBuilder WithMask(string path)
+    {
+        _mask = SKImage.FromEncodedData(File.ReadAllBytes(path));
+        return this;
+    }
+
+    public WordCloudBuilder WithMask(SKImage image)
+    {
+        _mask = image;
+        return this;
+    }
+
+    public WordCloudBuilder WithVerticality(float verticality)
+    {
+        _verticality = verticality;
         return this;
     }
 
@@ -295,7 +328,9 @@ public class WordCloudBuilder
         _strokeWidth,
         _background,
         _backgroundImage,
-        _backgroudImageBlur,
+        _backgroundImageBlur,
+        _mask,
+        _verticality,
         _colorFunc,
         _strokeColorFunc
     );
