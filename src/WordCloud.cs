@@ -143,6 +143,8 @@ public partial class WordCloud(
         using var surface = SKSurface.Create(info);
         using var canvas = surface.Canvas;
 
+        DrawMask(canvas);
+
         float fontSize = maxFontSize;
         using var paint = new SKPaint { IsAntialias = true, StrokeWidth = strokeWidth };
 
@@ -167,6 +169,8 @@ public partial class WordCloud(
                 fontSize -= fontSizeStep;
             }
         }
+
+        ClearMask(canvas);
 
         DrawBackground(canvas);
         return surface.Snapshot();
