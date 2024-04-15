@@ -14,6 +14,7 @@ public partial class WordCloud(
     float similarity,
     int padding,
     int strokeWidth,
+    float strokeRatio,
     SKColor background,
     SKImage? backgroundImage,
     int backgroundImageBlur,
@@ -88,6 +89,11 @@ public partial class WordCloud(
 
         paint.Style = SKPaintStyle.Stroke;
         paint.Color = _strokeColorFunc(text);
+
+        if (strokeRatio > 0)
+        {
+            paint.StrokeWidth = paint.TextSize * strokeRatio;
+        }
         canvas.DrawText(text, x, y, paint);
     }
 
@@ -198,6 +204,7 @@ public class WordCloudBuilder
     private float _verticality = 0.3f;
     private float _similarity = 5;
     private int _strokeWidth = 0;
+    private float _strokeRatio = 0;
     private Func<string, SKColor>? _colorFunc;
     private Func<string, SKColor>? _strokeColorFunc;
 
@@ -330,6 +337,7 @@ public class WordCloudBuilder
         _similarity,
         _padding,
         _strokeWidth,
+        _strokeRatio,
         _background,
         _backgroundImage,
         _backgroundImageBlur,
