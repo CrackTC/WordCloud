@@ -273,6 +273,12 @@ public class WordCloudBuilder
         return this;
     }
 
+    public WordCloudBuilder WithStrokeRatio(float strokeRatio)
+    {
+        _strokeRatio = strokeRatio;
+        return this;
+    }
+
     public WordCloudBuilder WithBackground(SKColor background)
     {
         _background = background;
