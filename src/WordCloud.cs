@@ -85,7 +85,7 @@ public partial class WordCloud(
     {
         paint.Style = SKPaintStyle.Fill;
         canvas.DrawText(text, x, y, paint);
-        if (strokeWidth == 0) return;
+        if (strokeWidth == 0 && strokeRatio == 0.0f) return;
 
         paint.Style = SKPaintStyle.Stroke;
         paint.Color = _strokeColorFunc(text);
