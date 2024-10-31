@@ -33,9 +33,11 @@ public partial class WordCloud(
     private int GetIndex(int x, int y) => y * width + x;
 
     [LibraryImport("wordcloud", EntryPoint = "cumulative_sum")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvSuppressGCTransition)])]
     private static partial void CumulativeSum([In, Out] int[] arr, int width, int height);
 
     [LibraryImport("wordcloud", EntryPoint = "hit_count")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvSuppressGCTransition)])]
     private static partial void HitCount([In, Out] int[] arr, int width, int height, int bw, int bh, [Out] int[] hits);
 
     private SKPoint? GetTextPosition(SKPixmap pixmap, string text, SKPaint paint, bool vertical)
