@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using SkiaSharp;
 using SkiaSharp.HarfBuzz;
 using HarfBuzzSharp;
+using NeoSmart.Unicode;
 
 namespace WordCloud;
 
@@ -51,6 +52,7 @@ public partial class WordCloud(
     int width,
     int height,
     SKTypeface? typeface,
+    SKTypeface? emojiTypeface,
     int maxFontSize,
     int minFontSize,
     int fontSizeStep,
@@ -71,6 +73,7 @@ public partial class WordCloud(
     private readonly Func<string, SKColor> _strokeColorFunc = strokeColorFunc ?? (s => SKColors.Black);
     private readonly int[] _matrix = new int[width * height];
     private readonly SKShaper _shaper = new SKShaper(typeface ?? SKTypeface.Default);
+    private readonly SKShaper _emojiShaper = new SKShaper(emojiTypeface ?? SKTypeface.Default);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int GetIndex(int x, int y) => y * width + x;
@@ -125,31 +128,40 @@ public partial class WordCloud(
         return null;
     }
 
-    private void FillAndStrokeText(SKCanvas canvas, string text, float x, float y, SKPaint paint)
+    private void FillText(SKCanvas canvas, string text, float x, float y, SKShaper shaper, SKPaint paint)
     {
         paint.Style = SKPaintStyle.Fill;
-        canvas.DrawShapedText(_shaper, text, x, y, paint);
-        if (strokeWidth == 0 && strokeRatio == 0.0f) return;
+        canvas.DrawShapedText(shaper, text, x, y, paint);
+    }
 
+    private void StrokeText(SKCanvas canvas, string text, float x, float y, SKShaper shaper, SKPaint paint)
+    {
         paint.Style = SKPaintStyle.Stroke;
         paint.Color = _strokeColorFunc(text);
 
         if (strokeRatio > 0)
-        {
             paint.StrokeWidth = paint.TextSize * strokeRatio;
-        }
-        canvas.DrawShapedText(_shaper, text, x, y, paint);
+        else
+            paint.StrokeWidth = strokeWidth;
+        canvas.DrawShapedText(shaper, text, x, y, paint);
     }
 
-    private void DrawText(SKCanvas canvas, string text, SKPoint position, SKPaint paint, bool vertical)
+    private void FillAndStrokeText(SKCanvas canvas, string text, bool isEmoji, float x, float y, SKShaper shaper, SKPaint paint)
+    {
+        FillText(canvas, text, x, y, shaper, paint);
+        if ((strokeWidth > 0 || strokeRatio > 0.0f) && !isEmoji)
+            StrokeText(canvas, text, x, y, shaper, paint);
+    }
+
+    private void DrawText(SKCanvas canvas, string text, bool isEmoji, SKPoint position, SKShaper shaper, SKPaint paint, bool vertical)
     {
         canvas.Save();
         if (vertical)
         {
             canvas.RotateDegrees(90);
-            FillAndStrokeText(canvas, text, position.Y, -position.X, paint);
+            FillAndStrokeText(canvas, text, isEmoji, position.Y, -position.X, shaper, paint);
         }
-        else FillAndStrokeText(canvas, text, position.X, position.Y, paint);
+        else FillAndStrokeText(canvas, text, isEmoji, position.X, position.Y, shaper, paint);
         canvas.Restore();
     }
 
@@ -186,7 +198,12 @@ public partial class WordCloud(
     public SKImage GenerateImage(Dictionary<string, int> freqDict)
     {
         var list = freqDict.OrderByDescending(x => x.Value)
-                           .Select(x => (Text: x.Key, Freq: x.Value, Vertical: Random.Shared.NextSingle() < verticality))
+                           .Select(x => (
+                               Text: x.Key,
+                               Freq: x.Value,
+                               Vertical: Random.Shared.NextSingle() < verticality,
+                               IsEmoji: Emoji.IsEmoji(x.Key)
+                            ))
                            .ToList();
 
         var info = new SKImageInfo(width, height, SKColorType.Rgba8888);
@@ -196,23 +213,27 @@ public partial class WordCloud(
         DrawMask(canvas);
 
         float fontSize = maxFontSize;
-        using var paint = new SKPaint { IsAntialias = true, StrokeWidth = strokeWidth };
-        paint.Typeface = typeface ?? SKTypeface.Default;
-        using var measuring = new HarfBuzzMeasuring(paint.Typeface);
+        using var paint = new SKPaint { IsAntialias = true };
+        using var measuring = new HarfBuzzMeasuring(typeface ?? SKTypeface.Default);
+        using var emojiMeasuring = new HarfBuzzMeasuring(emojiTypeface ?? SKTypeface.Default);
 
         for (int i = 0; i < list.Count && fontSize >= minFontSize; i++)
         {
             using var pixmap = surface.PeekPixels();
-            var (text, freq, vertical) = list[i];
+            var (text, freq, vertical, isEmoji) = list[i];
+
+            Console.WriteLine($"{text}: IsEmoji: {isEmoji}");
 
             paint.TextSize = fontSize;
             paint.Color = _colorFunc(text);
 
-            var (w, h) = measuring.MeasureText(text, fontSize);
+            paint.Typeface = isEmoji ? emojiTypeface : typeface;
+
+            var (w, h) = (isEmoji ? emojiMeasuring : measuring).MeasureText(text, fontSize);
 
             if (GetTextPosition(pixmap, w, h, vertical) is { } position)
             {
-                DrawText(canvas, text, position, paint, vertical);
+                DrawText(canvas, text, isEmoji, position, isEmoji ? _emojiShaper : _shaper, paint, vertical);
                 if (i < list.Count - 1)
                     fontSize *= 1 - (1 - (float)list[i + 1].Freq / (float)freq) / similarity;
             }
@@ -242,6 +263,7 @@ public class WordCloudBuilder
     private int _maxFontSize = 200;
     private int _minFontSize = 12;
     private SKTypeface? _typeface;
+    private SKTypeface? _emojiTypeface;
     private int _fontSizeStep = 2;
     private int _padding = 2;
     private SKColor _background = SKColors.Black;
@@ -282,6 +304,23 @@ public class WordCloudBuilder
     public WordCloudBuilder WithFont(SKTypeface typeface)
     {
         _typeface = typeface;
+        return this;
+    }
+
+    public WordCloudBuilder WithEmojiFont(
+        string familyName,
+        SKFontStyleWeight weight = SKFontStyleWeight.Normal,
+        SKFontStyleWidth width = SKFontStyleWidth.Normal,
+        SKFontStyleSlant slant = SKFontStyleSlant.Upright
+    )
+    {
+        _emojiTypeface = SKTypeface.FromFamilyName(familyName, weight, width, slant);
+        return this;
+    }
+
+    public WordCloudBuilder WithEmojiFontFile(string path, int index = 0)
+    {
+        _emojiTypeface = SKTypeface.FromFile(path, index);
         return this;
     }
 
@@ -384,6 +423,7 @@ public class WordCloudBuilder
         _width,
         _height,
         _typeface,
+        _emojiTypeface ?? _typeface,
         _maxFontSize,
         _minFontSize,
         _fontSizeStep,
