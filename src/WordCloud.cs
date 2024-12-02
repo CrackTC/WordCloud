@@ -222,8 +222,6 @@ public partial class WordCloud(
             using var pixmap = surface.PeekPixels();
             var (text, freq, vertical, isEmoji) = list[i];
 
-            Console.WriteLine($"{text}: IsEmoji: {isEmoji}");
-
             paint.TextSize = fontSize;
             paint.Color = _colorFunc(text);
 
