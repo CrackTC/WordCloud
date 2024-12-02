@@ -324,6 +324,12 @@ public class WordCloudBuilder
         return this;
     }
 
+    public WordCloudBuilder WithEmojiFont(SKTypeface typeface)
+    {
+        _emojiTypeface = typeface;
+        return this;
+    }
+
     public WordCloudBuilder WithMaxFontSize(int maxFontSize)
     {
         _maxFontSize = maxFontSize;
