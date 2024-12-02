@@ -499,3 +499,7 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 build
+
+*.dll
+*.dylib
+*.so

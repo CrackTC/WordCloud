@@ -4,11 +4,6 @@
     <ProjectReference Include="..\src\WordCloud.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="SkiaSharp" Version="2.88.7" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.7" />
-  </ItemGroup>
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>

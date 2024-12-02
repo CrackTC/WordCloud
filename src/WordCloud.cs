@@ -1,8 +1,51 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using SkiaSharp;
+using SkiaSharp.HarfBuzz;
+using HarfBuzzSharp;
 
 namespace WordCloud;
+
+// https://www.mrumpler.at/the-trouble-with-text-rendering-in-skiasharp-and-harfbuzz/
+internal class HarfBuzzMeasuring : IDisposable
+{
+    private readonly Blob blob;
+    private readonly Face face;
+    private readonly Font font;
+    private readonly HarfBuzzSharp.Buffer buffer = new();
+
+    private readonly int xScale, yScale;
+
+    public HarfBuzzMeasuring(SKTypeface skface)
+    {
+        blob = skface.OpenStream().ToHarfBuzzBlob();
+        face = new Face(blob, 0) { UnitsPerEm = skface.UnitsPerEm };
+        font = new Font(face);
+        font.GetScale(out xScale, out yScale);
+    }
+
+    public void Dispose()
+    {
+        font.Dispose();
+        face.Dispose();
+        blob.Dispose();
+        buffer.Dispose();
+    }
+
+    public (float, float) MeasureText(string text, float fontSize)
+    {
+        buffer.ClearContents();
+        buffer.AddUtf16(text);
+        buffer.GuessSegmentProperties();
+        font.Shape(buffer);
+
+        var width = buffer.GlyphPositions.Sum(pos => pos.XAdvance) * fontSize / xScale;
+        var height = face.UnitsPerEm * fontSize / yScale;
+
+        return (width, height);
+    }
+}
 
 public partial class WordCloud(
     int width,
@@ -24,10 +67,10 @@ public partial class WordCloud(
     Func<string, SKColor>? strokeColorFunc
 ) : IDisposable
 {
-    private static readonly Random _random = new();
     private readonly Func<string, SKColor> _colorFunc = colorFunc ?? (s => SKColor.Parse("aaffffff"));
     private readonly Func<string, SKColor> _strokeColorFunc = strokeColorFunc ?? (s => SKColors.Black);
     private readonly int[] _matrix = new int[width * height];
+    private readonly SKShaper _shaper = new SKShaper(typeface ?? SKTypeface.Default);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int GetIndex(int x, int y) => y * width + x;
@@ -40,11 +83,9 @@ public partial class WordCloud(
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSuppressGCTransition)])]
     private static partial void HitCount([In, Out] int[] arr, int width, int height, int bw, int bh, [Out] int[] hits);
 
-    private SKPoint? GetTextPosition(SKPixmap pixmap, string text, SKPaint paint, bool vertical)
+    private SKPoint? GetTextPosition(SKPixmap pixmap, float blockWidth, float blockHeight, bool vertical)
     {
-        var bounds = new SKRect();
-        paint.MeasureText(text, ref bounds);
-        var (bw, bh) = ((int)Math.Ceiling(bounds.Width + 2 * padding), (int)Math.Ceiling(bounds.Height + 2 * padding));
+        var (bw, bh) = ((int)Math.Ceiling(blockWidth + 2 * padding), (int)Math.Ceiling(blockHeight * 1.2f + 2 * padding));
         if (vertical) (bw, bh) = (bh, bw);
 
         if (bw >= width || bh >= height) return null;
@@ -52,18 +93,17 @@ public partial class WordCloud(
         pixmap.GetPixelSpan<int>().CopyTo(_matrix);
         CumulativeSum(_matrix, width, height);
 
-        int[] hits = new int[height - bh];
+        var hits = ArrayPool<int>.Shared.Rent(height - bh);
         HitCount(_matrix, width, height, bw, bh, hits);
+        var hitSpan = hits.AsSpan(0, height - bh);
 
-        for (int i = 1; i < hits.Length; i++)
-            hits[i] += hits[i - 1];
-        if (hits[^1] == 0) return null;
+        if (hitSpan[^1] == 0) return null;
 
-        int index = _random.Next(hits[^1]) + 1;
-        int row = Array.BinarySearch(hits, index);
-        while (row > 0 && hits[row - 1] == hits[row]) row--;
+        int index = Random.Shared.Next(hitSpan[^1]) + 1;
+        int row = hitSpan.BinarySearch(index);
+        while (row > 0 && hitSpan[row - 1] == hitSpan[row]) row--;
         if (row < 0) row = ~row;
-        index -= row == 0 ? 0 : hits[row - 1];
+        index -= row == 0 ? 0 : hitSpan[row - 1];
 
         int count = 0;
 
@@ -74,19 +114,21 @@ public partial class WordCloud(
                 count++;
                 if (count == index)
                 {
-                    if (!vertical) return new(x + padding - bounds.Left, row + padding - bounds.Top);
-                    else return new(x + padding + bounds.Height + bounds.Top, row + padding - bounds.Left);
+                    ArrayPool<int>.Shared.Return(hits);
+                    if (!vertical) return new(x + padding, row + padding + blockHeight);
+                    else return new(x + padding + blockHeight * 0.2f, row + padding);
                 }
             }
         }
 
+        ArrayPool<int>.Shared.Return(hits);
         return null;
     }
 
     private void FillAndStrokeText(SKCanvas canvas, string text, float x, float y, SKPaint paint)
     {
         paint.Style = SKPaintStyle.Fill;
-        canvas.DrawText(text, x, y, paint);
+        canvas.DrawShapedText(_shaper, text, x, y, paint);
         if (strokeWidth == 0 && strokeRatio == 0.0f) return;
 
         paint.Style = SKPaintStyle.Stroke;
@@ -96,7 +138,7 @@ public partial class WordCloud(
         {
             paint.StrokeWidth = paint.TextSize * strokeRatio;
         }
-        canvas.DrawText(text, x, y, paint);
+        canvas.DrawShapedText(_shaper, text, x, y, paint);
     }
 
     private void DrawText(SKCanvas canvas, string text, SKPoint position, SKPaint paint, bool vertical)
@@ -144,7 +186,7 @@ public partial class WordCloud(
     public SKImage GenerateImage(Dictionary<string, int> freqDict)
     {
         var list = freqDict.OrderByDescending(x => x.Value)
-                           .Select(x => (Text: x.Key, Freq: x.Value, Vertical: _random.NextSingle() < verticality))
+                           .Select(x => (Text: x.Key, Freq: x.Value, Vertical: Random.Shared.NextSingle() < verticality))
                            .ToList();
 
         var info = new SKImageInfo(width, height, SKColorType.Rgba8888);
@@ -155,6 +197,8 @@ public partial class WordCloud(
 
         float fontSize = maxFontSize;
         using var paint = new SKPaint { IsAntialias = true, StrokeWidth = strokeWidth };
+        paint.Typeface = typeface ?? SKTypeface.Default;
+        using var measuring = new HarfBuzzMeasuring(paint.Typeface);
 
         for (int i = 0; i < list.Count && fontSize >= minFontSize; i++)
         {
@@ -163,9 +207,10 @@ public partial class WordCloud(
 
             paint.TextSize = fontSize;
             paint.Color = _colorFunc(text);
-            if (typeface is { }) paint.Typeface = typeface;
 
-            if (GetTextPosition(pixmap, text, paint, vertical) is { } position)
+            var (w, h) = measuring.MeasureText(text, fontSize);
+
+            if (GetTextPosition(pixmap, w, h, vertical) is { } position)
             {
                 DrawText(canvas, text, position, paint, vertical);
                 if (i < list.Count - 1)
