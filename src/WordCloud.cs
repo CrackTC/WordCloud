@@ -50,6 +50,7 @@ internal class HarfBuzzMeasuring : IDisposable
 public partial class WordCloud(
     int width,
     int height,
+    float scale, // calculate position on low resolution and scale up
     SKTypeface? typeface,
     SKTypeface? emojiTypeface,
     int maxFontSize,
@@ -68,14 +69,34 @@ public partial class WordCloud(
     Func<string, SKColor>? strokeColorFunc
 ) : IDisposable
 {
+    private readonly int _lowResWidth = (int)(width / scale);
+    private readonly int _lowResHeight = (int)(height / scale);
+    private readonly SKSurface _lowResSurface = SKSurface.Create(
+        new SKImageInfo(
+            (int)(width / scale),
+            (int)(height / scale),
+            SKColorType.Rgba8888
+        )
+    );
+    private readonly SKSurface _surface = SKSurface.Create(
+        new SKImageInfo(
+            width,
+            height,
+            SKColorType.Rgba8888
+        )
+    );
     private readonly Func<string, SKColor> _colorFunc = colorFunc ?? (s => SKColor.Parse("aaffffff"));
     private readonly Func<string, SKColor> _strokeColorFunc = strokeColorFunc ?? (s => SKColors.Black);
-    private readonly int[] _matrix = new int[width * height];
+    private readonly int[] _matrix = new int[(int)(width / scale) * (int)(height / scale)];
     private readonly SKShaper _shaper = new SKShaper(typeface ?? SKTypeface.Default);
     private readonly SKShaper _emojiShaper = new SKShaper(emojiTypeface ?? SKTypeface.Default);
+    private readonly SKPaint _paint = new SKPaint { IsAntialias = true };
+    private readonly HarfBuzzMeasuring _measuring = new HarfBuzzMeasuring(typeface ?? SKTypeface.Default);
+    private readonly HarfBuzzMeasuring _emojiMeasuring = new HarfBuzzMeasuring(emojiTypeface ?? SKTypeface.Default);
+    private readonly bool _isScaled = scale is not 1.0f;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int GetIndex(int x, int y) => y * width + x;
+    private int GetIndex(int x, int y) => y * _lowResWidth + x;
 
     [LibraryImport("wordcloud", EntryPoint = "cumulative_sum")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSuppressGCTransition)])]
@@ -85,19 +106,24 @@ public partial class WordCloud(
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSuppressGCTransition)])]
     private static partial void HitCount([In, Out] int[] arr, int width, int height, int bw, int bh, [Out] int[] hits);
 
-    private SKPoint? GetTextPosition(SKPixmap pixmap, float blockWidth, float blockHeight, bool vertical)
+    private SKPoint? GetTextPosition(
+        SKPixmap pixmap,
+        float blockWidth,
+        float blockHeight,
+        bool vertical
+    )
     {
         var (bw, bh) = ((int)Math.Ceiling(blockWidth + 2 * padding), (int)Math.Ceiling(blockHeight * 1.2f + 2 * padding));
         if (vertical) (bw, bh) = (bh, bw);
 
-        if (bw >= width || bh >= height) return null;
+        if (bw >= pixmap.Width || bh >= pixmap.Height) return null;
 
         pixmap.GetPixelSpan<int>().CopyTo(_matrix);
-        CumulativeSum(_matrix, width, height);
+        CumulativeSum(_matrix, pixmap.Width, pixmap.Height);
 
-        var hits = ArrayPool<int>.Shared.Rent(height - bh);
-        HitCount(_matrix, width, height, bw, bh, hits);
-        var hitSpan = hits.AsSpan(0, height - bh);
+        var hits = ArrayPool<int>.Shared.Rent(pixmap.Height - bh);
+        HitCount(_matrix, pixmap.Width, pixmap.Height, bw, bh, hits);
+        var hitSpan = hits.AsSpan(0, pixmap.Height - bh);
 
         if (hitSpan[^1] == 0) return null;
 
@@ -109,7 +135,7 @@ public partial class WordCloud(
 
         int count = 0;
 
-        for (int x = 0; x < width - bw; x++)
+        for (int x = 0; x < pixmap.Width - bw; x++)
         {
             if (_matrix[GetIndex(x, row)] - _matrix[GetIndex(x + bw, row)] + _matrix[GetIndex(x + bw, row + bh)] - _matrix[GetIndex(x, row + bh)] == 0)
             {
@@ -127,40 +153,78 @@ public partial class WordCloud(
         return null;
     }
 
-    private void FillText(SKCanvas canvas, string text, float x, float y, SKShaper shaper, SKPaint paint)
+    private void FillText(
+        SKCanvas canvas,
+        string text,
+        float x,
+        float y,
+        SKColor color,
+        SKShaper shaper
+    )
     {
-        paint.Style = SKPaintStyle.Fill;
-        canvas.DrawShapedText(shaper, text, x, y, paint);
+        _paint.Style = SKPaintStyle.Fill;
+        _paint.Color = color;
+        canvas.DrawShapedText(shaper, text, x, y, _paint);
     }
 
-    private void StrokeText(SKCanvas canvas, string text, float x, float y, SKShaper shaper, SKPaint paint)
+    private void StrokeText(
+        SKCanvas canvas,
+        string text,
+        float x,
+        float y,
+        SKColor color,
+        SKShaper shaper
+    )
     {
-        paint.Style = SKPaintStyle.Stroke;
-        paint.Color = _strokeColorFunc(text);
+        _paint.Style = SKPaintStyle.Stroke;
+        _paint.Color = color;
 
         if (strokeRatio > 0)
-            paint.StrokeWidth = paint.TextSize * strokeRatio;
+            _paint.StrokeWidth = _paint.TextSize * strokeRatio;
         else
-            paint.StrokeWidth = strokeWidth;
-        canvas.DrawShapedText(shaper, text, x, y, paint);
+            _paint.StrokeWidth = strokeWidth;
+        canvas.DrawShapedText(shaper, text, x, y, _paint);
     }
 
-    private void FillAndStrokeText(SKCanvas canvas, string text, bool isEmoji, float x, float y, SKShaper shaper, SKPaint paint)
+    private void FillAndStrokeText(
+        SKCanvas canvas,
+        string text,
+        bool isEmoji,
+        float x,
+        float y,
+        SKColor color,
+        SKColor strokeColor,
+        SKShaper shaper
+    )
     {
-        FillText(canvas, text, x, y, shaper, paint);
+        FillText(canvas, text, x, y, color, shaper);
         if ((strokeWidth > 0 || strokeRatio > 0.0f) && !isEmoji)
-            StrokeText(canvas, text, x, y, shaper, paint);
+            StrokeText(canvas, text, x, y, strokeColor, shaper);
     }
 
-    private void DrawText(SKCanvas canvas, string text, bool isEmoji, SKPoint position, SKShaper shaper, SKPaint paint, bool vertical)
+    private void DrawText(
+        SKCanvas canvas,
+        string text,
+        float fontSize,
+        bool isEmoji,
+        bool vertical,
+        float x,
+        float y,
+        SKColor color,
+        SKColor strokeColor,
+        SKShaper shaper
+    )
     {
         canvas.Save();
+
+        _paint.TextSize = fontSize;
         if (vertical)
         {
             canvas.RotateDegrees(90);
-            FillAndStrokeText(canvas, text, isEmoji, position.Y, -position.X, shaper, paint);
+            FillAndStrokeText(canvas, text, isEmoji, y, -x, color, strokeColor, shaper);
         }
-        else FillAndStrokeText(canvas, text, isEmoji, position.X, position.Y, shaper, paint);
+        else FillAndStrokeText(canvas, text, isEmoji, x, y, color, strokeColor, shaper);
+
         canvas.Restore();
     }
 
@@ -205,51 +269,81 @@ public partial class WordCloud(
                             ))
                            .ToList();
 
-        var info = new SKImageInfo(width, height, SKColorType.Rgba8888);
-        using var surface = SKSurface.Create(info);
-        using var canvas = surface.Canvas;
+        var lowResCanvas = _lowResSurface.Canvas;
+        lowResCanvas.Clear();
 
-        DrawMask(canvas);
-
-        float fontSize = maxFontSize;
-        using var paint = new SKPaint { IsAntialias = true };
-        using var measuring = new HarfBuzzMeasuring(typeface ?? SKTypeface.Default);
-        using var emojiMeasuring = new HarfBuzzMeasuring(emojiTypeface ?? SKTypeface.Default);
-
-        for (int i = 0; i < list.Count && fontSize >= minFontSize; i++)
+        List<(float x, float y, float fontSize)>? positions = null;
+        if (_isScaled)
         {
-            using var pixmap = surface.PeekPixels();
+            positions = new List<(float, float, float)>(list.Count);
+        }
+
+        DrawMask(lowResCanvas);
+
+        float fontSize = maxFontSize / scale;
+
+        for (int i = 0; i < list.Count && fontSize >= minFontSize / scale; i++)
+        {
+            using var pixmap = _lowResSurface.PeekPixels();
             var (text, freq, vertical, isEmoji) = list[i];
 
-            paint.TextSize = fontSize;
-            paint.Color = _colorFunc(text);
+            var (w, h) = (isEmoji ? _emojiMeasuring : _measuring).MeasureText(text, fontSize);
 
-            paint.Typeface = isEmoji ? emojiTypeface : typeface;
-
-            var (w, h) = (isEmoji ? emojiMeasuring : measuring).MeasureText(text, fontSize);
-
-            if (GetTextPosition(pixmap, w, h, vertical) is { } position)
-            {
-                DrawText(canvas, text, isEmoji, position, isEmoji ? _emojiShaper : _shaper, paint, vertical);
-                if (i < list.Count - 1)
-                    fontSize *= 1 - (1 - (float)list[i + 1].Freq / (float)freq) / similarity;
-            }
-            else
+            if (GetTextPosition(pixmap, w, h, vertical) is not { } position)
             {
                 i--;
-                fontSize -= fontSizeStep;
+                fontSize -= fontSizeStep / scale;
+                continue;
+            }
+
+            positions?.Add((position.X * scale, position.Y * scale, fontSize * scale));
+            DrawText(
+                lowResCanvas,
+                text,
+                fontSize,
+                isEmoji,
+                vertical,
+                position.X,
+                position.Y,
+                _isScaled ? SKColors.Black : _colorFunc(text),
+                _isScaled ? SKColors.Black : _strokeColorFunc(text),
+                isEmoji ? _emojiShaper : _shaper
+            );
+            if (i < list.Count - 1)
+            {
+                fontSize *= 1 - (1 - (float)list[i + 1].Freq / (float)freq) / similarity;
             }
         }
 
-        ClearMask(canvas);
+        ClearMask(lowResCanvas);
 
+        if (!_isScaled)
+        {
+            DrawBackground(lowResCanvas);
+            return _lowResSurface.Snapshot();
+        }
+
+        var canvas = _surface.Canvas;
+        canvas.Clear();
         DrawBackground(canvas);
-        return surface.Snapshot();
+        for (int i = 0; i < positions!.Count; i++)
+        {
+            (var x, var y, fontSize) = positions[i];
+            var (text, _, vertical, isEmoji) = list[i];
+            DrawText(canvas, text, fontSize, isEmoji, vertical, x, y, _colorFunc(text), _strokeColorFunc(text), isEmoji ? _emojiShaper : _shaper);
+        }
+        return _surface.Snapshot();
     }
 
     public void Dispose()
     {
-        backgroundImage?.Dispose();
+        _lowResSurface.Dispose();
+        _surface.Dispose();
+        _measuring.Dispose();
+        _emojiMeasuring.Dispose();
+        _shaper.Dispose();
+        _emojiShaper.Dispose();
+        _paint.Dispose();
     }
 }
 
@@ -257,6 +351,7 @@ public class WordCloudBuilder
 {
     private int _width = 800;
     private int _height = 600;
+    private float _scale = 1.0f;
     private int _maxFontSize = 200;
     private int _minFontSize = 12;
     private SKTypeface? _typeface;
@@ -278,6 +373,12 @@ public class WordCloudBuilder
     {
         _width = width;
         _height = height;
+        return this;
+    }
+
+    public WordCloudBuilder WithScale(float scale)
+    {
+        _scale = scale;
         return this;
     }
 
@@ -425,6 +526,7 @@ public class WordCloudBuilder
     public WordCloud Build() => new(
         _width,
         _height,
+        _scale,
         _typeface,
         _emojiTypeface ?? _typeface,
         _maxFontSize,
