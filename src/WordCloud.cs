@@ -16,14 +16,11 @@ internal class HarfBuzzMeasuring : IDisposable
     private readonly Font font;
     private readonly HarfBuzzSharp.Buffer buffer = new();
 
-    private readonly int xScale, yScale;
-
     public HarfBuzzMeasuring(SKTypeface skface)
     {
         blob = skface.OpenStream().ToHarfBuzzBlob();
         face = new Face(blob, 0) { UnitsPerEm = skface.UnitsPerEm };
         font = new Font(face);
-        font.GetScale(out xScale, out yScale);
     }
 
     public void Dispose()
@@ -41,10 +38,12 @@ internal class HarfBuzzMeasuring : IDisposable
         buffer.GuessSegmentProperties();
         font.Shape(buffer);
 
-        var width = buffer.GlyphPositions.Sum(pos => pos.XAdvance) * fontSize / xScale;
-        var height = face.UnitsPerEm * fontSize / yScale;
+        var width = buffer.GlyphPositions.Sum(pos => pos.XAdvance) * fontSize / face.UnitsPerEm;
 
-        return (width, height);
+        // this is not needed, since scale in harfbuzz defaults to UPEM
+        // var height = face.UnitsPerEm * fontSize / yScale;
+
+        return (width, fontSize);
     }
 }
 
